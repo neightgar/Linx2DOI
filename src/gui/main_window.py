@@ -25,22 +25,16 @@ from ..core.worker import WorkerThread
 
 def get_icon_path():
     """Получает путь к иконке для dev и compiled режимов"""
-    # Возможные расположения иконки
     if getattr(sys, 'frozen', False):
-        # Режим compiled (Nuitka/PyInstaller)
-        base_path = Path(sys.executable).parent
-    else:
-        # Режим разработки
+        # Режим compiled (Nuitka)
+        # Для Nuitka onefile ищем в src/ относительно распакованных файлов
         base_path = Path(__file__).parent.parent
-
-    # Проверяем возможные расположения
-    icon_locations = [
-        base_path / "icon.ico",
-        base_path / "src" / "icon.ico",
-        Path(__file__).parent.parent / "icon.ico",
-    ]
-
-    for icon_path in icon_locations:
+        icon_path = base_path / "icon.ico"
+        if icon_path.exists():
+            return icon_path
+    else:
+        # Режим разработки - ищем в src/
+        icon_path = Path(__file__).parent.parent / "icon.ico"
         if icon_path.exists():
             return icon_path
 
