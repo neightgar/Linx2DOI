@@ -1,0 +1,11 @@
+# DOI Extractor & APA Formatter
+# Зависимости проекта
+
+# Обработка Word документов
+python-docx>=0.8.11
+
+# HTTP запросы к API
+requests>=2.31.0
+
+# GUI фреймворк
+PyQt6>=6.6.0
