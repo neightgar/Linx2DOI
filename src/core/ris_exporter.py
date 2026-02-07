@@ -28,6 +28,10 @@ class RISExporter:
             if not item.get('dois') or len(item['dois']) == 0:
                 continue
 
+            # Пропускаем дубли
+            if 'ДУБЛЬ' in item.get('status', ''):
+                continue
+
             # Начало записи - тип публикации
             ris_content.append("TY  - JOUR")  # Journal Article
 

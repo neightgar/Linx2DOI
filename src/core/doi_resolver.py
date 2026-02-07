@@ -6,6 +6,7 @@ import re
 import time
 import requests
 import xml.etree.ElementTree as ET
+from difflib import SequenceMatcher
 from urllib.parse import urlparse, unquote
 
 from .config import ENTREZ_EFETCH, CROSSREF_WORKS, MAX_RETRIES, REQUEST_TIMEOUT
@@ -253,8 +254,21 @@ class DOIResolver:
                                 clean_found = DocumentParser.normalize_title(found_title)
                                 clean_search = DocumentParser.normalize_title(clean_title)
 
-                                if clean_search[:25] in clean_found or len(clean_search) < 30:
+                                # Более гибкое сравнение заголовков
+                                # 1. Прямое совпадение первых 25 символов (двунаправленное)
+                                if clean_search[:25] in clean_found or clean_found[:25] in clean_search:
                                     self.log(f"  ✅ Найден DOI: {doi}")
+                                    return doi
+
+                                # 2. Проверка на короткие заголовки
+                                if len(clean_search) < 30:
+                                    self.log(f"  ✅ Найден DOI: {doi}")
+                                    return doi
+
+                                # 3. Проверка сходства через SequenceMatcher
+                                similarity = SequenceMatcher(None, clean_search, clean_found).ratio()
+                                if similarity >= 0.75:  # 75% сходства
+                                    self.log(f"  ✅ Найден DOI (сходство: {similarity:.2f}): {doi}")
                                     return doi
 
                         self.log(f"  ❌ DOI по заголовку не найден")

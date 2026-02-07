@@ -59,8 +59,17 @@ python main.py
 **document_parser.py** (`DocumentParser` class)
 - Extracts numbered references from .docx files
 - Parses both paragraphs and table cells
-- Expected format: `1. Article Title..... https://url.com`
-- Methods: `collect_items_from_document()`, `extract_item_from_text()`
+- **NEW v1.6**: Supports Word built-in numbering via `numPr` detection
+- **NEW v1.6**: Extracts hyperlinks from Word documents using `qn('r:id')`
+- **NEW v1.6**: Merges split URLs across paragraphs (e.g., `https://` + next paragraph)
+- Expected format: `1. Article Title..... https://url.com` or Word auto-numbered lists
+- Methods:
+  - `collect_items_from_document()` - main parsing with while loop for URL merging
+  - `extract_item_from_text()` - regex pattern: `r'^\s*\d+\.\s*(.*?)(https?://.+)$'`
+  - `extract_hyperlinks_from_paragraph()` - **NEW v1.6**: extracts URLs from hyperlinks
+  - `get_paragraph_number()` - **NEW v1.6**: detects Word numbering
+  - `normalize_title()` - normalizes titles for comparison
+  - `clean_url()` - removes spaces from URLs
 
 **doi_resolver.py** (`DOIResolver` class)
 - Resolves DOIs using multiple strategies (priority order):
@@ -71,8 +80,14 @@ python main.py
   5. PMC API lookup (PMCID)
   6. ResearchGate title extraction → CrossRef search
   7. Fallback: CrossRef search by article title
+- **NEW v1.6**: Improved title matching with `difflib.SequenceMatcher`
+- **NEW v1.6**: Bi-directional substring matching
+- **NEW v1.6**: 75% similarity threshold for fuzzy matching
 - Requires user email for NCBI API compliance
-- Method: `resolve_doi(item, manual_doi, auto_search)`
+- Methods:
+  - `resolve_doi(item, manual_doi, auto_search)` - main resolution orchestrator
+  - `search_doi_via_crossref(title, url)` - **UPDATED v1.6**: enhanced matching logic
+  - `extract_researchgate_title(url)` - extracts title from RG URL structure
 
 **citation_formatter.py** (`CitationFormatter` class)
 - Retrieves article metadata from CrossRef API
@@ -82,10 +97,12 @@ python main.py
 
 **html_generator.py** (`HTMLGenerator` class)
 - Generates self-contained HTML reports
+- **NEW v1.6**: Article titles link to **original URLs** from source document (not DOI)
+- **NEW v1.6**: Titles are hyperlinks even for "NO DATA" entries
+- **NEW v1.6**: Falls back to original title when `article_title` is None/empty
 - Color-coded status badges (no data: red, manual DOI: green, duplicate: orange)
 - Detects duplicate DOIs and marks them with "ДУБЛЬ № X" status
 - Statistics summary including duplicate count
-- Clickable article titles (links to DOI)
 - Methods: `generate_html_ordered(items, filename, email)`, `generate_table_data(items)`
 
 **ris_exporter.py** (`RISExporter` class) - **NEW in v1.5**
@@ -113,8 +130,10 @@ python main.py
 **main_window.py** (`MainWindow` class)
 - PyQt6 main window with tabbed interface
 - Two color themes: `AppColors` (dark) and `LightColors` (light, default)
+- **NEW v1.6**: Progress bar text color adapts to theme (dark in light, light in dark)
+- **NEW v1.6**: Selected table rows keep dark text in light theme (font-weight: 700)
 - Theme switching button in header
-- Email input, file selection, results table, progress bar, log area
+- Email input, file selection, results table, progress bar (300×22px), log area
 - Table features:
   - Editable "Manual DOI" column with top-aligned text
   - Hidden "Select" column (reserved for future features)

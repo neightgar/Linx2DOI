@@ -184,6 +184,8 @@ class MainWindow(QMainWindow):
                 background-color: {self.colors.BG_DARKEST};
                 height: 6px;
                 text-align: center;
+                color: {'#2d2d30' if self.current_theme == 'light' else '#ffffff'};
+                font-weight: 600;
             }}
             QProgressBar::chunk {{
                 background-color: {self.colors.PRIMARY};
@@ -567,7 +569,8 @@ class MainWindow(QMainWindow):
             }}
             QTableWidget::item:selected {{
                 background-color: {self.colors.TABLE_SELECTED};
-                color: white;
+                color: {'#2d2d30' if self.current_theme == 'light' else 'white'};
+                font-weight: {'700' if self.current_theme == 'light' else '400'};
             }}
             QHeaderView::section {{
                 background-color: {self.colors.TABLE_HEADER};

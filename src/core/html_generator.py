@@ -285,11 +285,13 @@ h1 {{
                 item_class += " manual-doi"
                 badge_html = """<span class="manual-doi-badge">РУЧНОЙ DOI</span>"""
 
-            # Формируем заголовок статьи как гиперссылку на DOI если есть
-            article_title = item.get('article_title', item['title'])
-            if item['dois'] and len(item['dois']) > 0:
-                doi_url = f"https://doi.org/{item['dois'][0]}"
-                title_html = f"""<a href="{doi_url}" target="_blank" style="color: #1a365d; text-decoration: none;">{article_title}</a>"""
+            # Формируем заголовок статьи как гиперссылку на оригинальный URL
+            # Если article_title пустой или None, используем оригинальный title
+            article_title = item.get('article_title') or item.get('title', 'Без названия')
+            original_url = item.get('url', '')
+            if original_url:
+                # Используем оригинальный URL из документа
+                title_html = f"""<a href="{original_url}" target="_blank" style="color: #1a365d; text-decoration: none;">{article_title}</a>"""
             else:
                 title_html = article_title
 
