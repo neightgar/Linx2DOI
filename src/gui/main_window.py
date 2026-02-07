@@ -6,6 +6,9 @@ import sys
 import os
 import re
 from pathlib import Path
+from docx import Document
+from docx.shared import Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
@@ -18,6 +21,30 @@ from PyQt6.QtGui import QColor, QFont, QBrush, QIcon
 
 from ..core.config import SETTINGS_ORG, SETTINGS_APP
 from ..core.worker import WorkerThread
+
+
+def get_icon_path():
+    """Получает путь к иконке для dev и compiled режимов"""
+    # Возможные расположения иконки
+    if getattr(sys, 'frozen', False):
+        # Режим compiled (Nuitka/PyInstaller)
+        base_path = Path(sys.executable).parent
+    else:
+        # Режим разработки
+        base_path = Path(__file__).parent.parent
+
+    # Проверяем возможные расположения
+    icon_locations = [
+        base_path / "icon.ico",
+        base_path / "src" / "icon.ico",
+        Path(__file__).parent.parent / "icon.ico",
+    ]
+
+    for icon_path in icon_locations:
+        if icon_path.exists():
+            return icon_path
+
+    return None
 from ..core.ris_exporter import RISExporter
 from .delegates import HyperlinkDelegate, ManualDOIDelegate
 
@@ -111,8 +138,8 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1100, 700)
 
         # Установка иконки приложения
-        icon_path = Path(__file__).parent.parent / "icon.ico"
-        if icon_path.exists():
+        icon_path = get_icon_path()
+        if icon_path:
             self.setWindowIcon(QIcon(str(icon_path)))
 
         # Состояние приложения
@@ -307,8 +334,8 @@ class MainWindow(QMainWindow):
         header_layout.setContentsMargins(20, 10, 20, 10)
 
         # Иконка приложения
-        icon_path = Path(__file__).parent.parent / "icon.ico"
-        if icon_path.exists():
+        icon_path = get_icon_path()
+        if icon_path:
             icon_label = QLabel()
             pixmap = QIcon(str(icon_path)).pixmap(48, 48)
             icon_label.setPixmap(pixmap)
@@ -441,20 +468,22 @@ class MainWindow(QMainWindow):
         row2.setSpacing(10)
 
         # Кнопки действий
-        actions_label = QLabel("Действия:")
-        actions_label.setStyleSheet(f"color: {self.colors.TEXT_SECONDARY}; font-size: 11px; font-weight: 600;")
-        row2.addWidget(actions_label)
-
         self.process_btn = QPushButton("🚀 Запустить обработку")
         self.process_btn.setFixedHeight(34)
         self.process_btn.clicked.connect(self.start_processing)
         self.process_btn.setEnabled(False)
         row2.addWidget(self.process_btn)
 
-        self.apply_manual_doi_btn = QPushButton("💾 Применить ручные DOI")
+        self.apply_manual_doi_btn = QPushButton("🔍 Обработать выбранные")
         self.apply_manual_doi_btn.setFixedHeight(34)
-        self.apply_manual_doi_btn.clicked.connect(self.apply_manual_doi)
+        self.apply_manual_doi_btn.clicked.connect(self.process_selected)
         self.apply_manual_doi_btn.setEnabled(False)
+        self.apply_manual_doi_btn.setToolTip(
+            "Обработать записи с галочками ИЛИ ручными DOI\n"
+            "• Галочка + DOI вручную = использует ручной DOI\n"
+            "• Галочка без DOI = автопоиск\n"
+            "• DOI вручную без галочки = использует ручной DOI"
+        )
         row2.addWidget(self.apply_manual_doi_btn)
 
         self.open_btn = QPushButton("📄 Открыть результат")
@@ -469,6 +498,16 @@ class MainWindow(QMainWindow):
         self.export_ris_btn.setEnabled(False)
         self.export_ris_btn.setToolTip("Экспорт в формат RIS для Mendeley, Zotero, EndNote")
         row2.addWidget(self.export_ris_btn)
+
+        self.collect_publications_btn = QPushButton("📚 Собрать публикации")
+        self.collect_publications_btn.setFixedHeight(34)
+        self.collect_publications_btn.clicked.connect(self.collect_publications)
+        self.collect_publications_btn.setEnabled(False)
+        self.collect_publications_btn.setToolTip(
+            "Создать docx файл с публикациями в формате APA\n"
+            "Исключаются записи со статусом 'ОТСУТСТВУЕТ В ТЕКСТЕ'"
+        )
+        row2.addWidget(self.collect_publications_btn)
 
         row2.addStretch()
 
@@ -589,8 +628,8 @@ class MainWindow(QMainWindow):
         # Устанавливаем высоту строк для комфортного ввода
         self.results_table.verticalHeader().setDefaultSectionSize(45)
 
-        # Скрываем колонку "Выбрать" (зарезервировано для будущего функционала)
-        self.results_table.setColumnHidden(6, True)
+        # Колонка чекбоксов теперь видна для выборочного парсинга
+        # self.results_table.setColumnHidden(6, True)
 
         results_layout.addWidget(self.results_table)
 
@@ -678,6 +717,7 @@ class MainWindow(QMainWindow):
             self.apply_manual_doi_btn.setEnabled(True)
             self.open_btn.setEnabled(True)
             self.export_ris_btn.setEnabled(True)
+            self.collect_publications_btn.setEnabled(True)
             if current_input:
                 self.file_label.setText(f"📄 {current_input.name}")
 
@@ -731,6 +771,7 @@ class MainWindow(QMainWindow):
             self.apply_manual_doi_btn.setEnabled(False)
             self.open_btn.setEnabled(False)
             self.export_ris_btn.setEnabled(False)
+            self.collect_publications_btn.setEnabled(False)
             self.log_text.append(f"\n✅ Выбран файл: {self.input_path.name}")
             self.results_table.setRowCount(0)
             self.all_items = []
@@ -768,6 +809,7 @@ class MainWindow(QMainWindow):
         self.apply_manual_doi_btn.setEnabled(False)
         self.open_btn.setEnabled(False)
         self.export_ris_btn.setEnabled(False)
+        self.collect_publications_btn.setEnabled(False)
         self.log_text.clear()
         self.log_text.append("═" * 60)
         self.log_text.append("🚀 НАЧАЛО АВТОМАТИЧЕСКОЙ ОБРАБОТКИ")
@@ -784,8 +826,8 @@ class MainWindow(QMainWindow):
         self.worker.table_data.connect(self.update_table_data)
         self.worker.start()
 
-    def reparse_selected(self):
-        """Повторный парсинг выбранных элементов"""
+    def process_selected(self):
+        """Обработка выбранных элементов (автопоиск или ручной DOI)"""
         if not self.input_path:
             QMessageBox.warning(self, "Ошибка", "Сначала выберите файл .docx")
             return
@@ -795,101 +837,92 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Ошибка", "Укажите корректный email")
             return
 
-        # Сбор выбранных элементов
+        # Собираем записи с галочками ИЛИ ручными DOI
         selected_items = []
+        manual_count = 0
+        auto_count = 0
+        rows_to_uncheck = []  # Запоминаем строки для снятия галочек ПОСЛЕ запуска
+
         for row in range(self.results_table.rowCount()):
+            # Получаем галочку и manual_doi
             check_widget = self.results_table.cellWidget(row, 6)
+            checkbox = None
+            is_checked = False
+
             if check_widget:
                 checkbox = check_widget.layout().itemAt(0).widget()
-                if checkbox and checkbox.isChecked():
-                    item_data = self.table_items_map.get(row)
-                    if item_data:
-                        manual_doi_item = self.results_table.item(row, 4)
-                        manual_doi = manual_doi_item.text().strip() if manual_doi_item else ""
-                        selected_items.append({
-                            'original_item': item_data,
-                            'manual_doi': manual_doi if manual_doi else None
-                        })
+                is_checked = checkbox and checkbox.isChecked()
 
-        if not selected_items:
-            QMessageBox.warning(self, "Ошибка", "Не выбрано ни одной статьи")
-            return
-
-        # Переключаемся на вкладку лога
-        self.tabs.setCurrentIndex(1)
-
-        self.progress_bar.setValue(0)
-        self.progress_label.setText(f"Парсинг {len(selected_items)}...")
-        self.process_btn.setEnabled(False)
-        self.apply_manual_doi_btn.setEnabled(False)
-        self.open_btn.setEnabled(False)
-        self.export_ris_btn.setEnabled(False)
-        self.log_text.append("")
-        self.log_text.append("═" * 60)
-        self.log_text.append(f"🔄 ПОВТОРНЫЙ ПАРСИНГ {len(selected_items)} ЗАПИСЕЙ")
-        self.log_text.append("═" * 60)
-
-        self.worker = WorkerThread(self.input_path, user_email, selected_items,
-                                   previous_items=self.all_items)
-        self.worker.progress.connect(self.update_progress)
-        self.worker.log.connect(self.update_log)
-        self.worker.finished_success.connect(self.processing_finished)
-        self.worker.finished_error.connect(self.processing_error)
-        self.worker.table_data.connect(self.update_table_data)
-        self.worker.start()
-
-    def apply_manual_doi(self):
-        """Применение ручных DOI"""
-        if not self.input_path:
-            QMessageBox.warning(self, "Ошибка", "Сначала выберите файл .docx")
-            return
-
-        user_email = self.email_input.text().strip()
-        if not user_email or not self.validate_email(user_email):
-            QMessageBox.warning(self, "Ошибка", "Укажите корректный email")
-            return
-
-        # Собираем элементы с ручными DOI
-        manual_items = []
-        for row in range(self.results_table.rowCount()):
             manual_doi_item = self.results_table.item(row, 4)
-            if manual_doi_item:
-                manual_doi = manual_doi_item.text().strip()
-                if manual_doi and manual_doi.startswith('10.'):
-                    item_data = self.table_items_map.get(row)
-                    if item_data:
-                        manual_items.append({
+            manual_doi = manual_doi_item.text().strip() if manual_doi_item else ""
+            has_manual_doi = manual_doi and manual_doi.startswith('10.')
+
+            # Обрабатываем если ЛИБО галочка ЛИБО manual_doi
+            if is_checked or has_manual_doi:
+                item_data = self.table_items_map.get(row)
+                if item_data:
+                    # Определяем тип обработки
+                    if has_manual_doi:
+                        selected_items.append({
                             'original_item': item_data,
                             'manual_doi': manual_doi
                         })
-                        manual_doi_item.setText("")
+                        manual_doi_item.setText("")  # Очищаем после сбора
+                        manual_count += 1
+                    else:
+                        selected_items.append({
+                            'original_item': item_data,
+                            'manual_doi': None
+                        })
+                        auto_count += 1
 
-        if not manual_items:
-            QMessageBox.warning(self, "Ошибка", "Не найдено ручных DOI")
+                    # Запоминаем строку для снятия галочки (если она была)
+                    if is_checked and checkbox:
+                        rows_to_uncheck.append((row, checkbox))
+
+        if not selected_items:
+            QMessageBox.warning(self, "Ошибка",
+                              "Не выбрано ни одной записи для обработки.\n\n"
+                              "Отметьте галочками нужные записи\n"
+                              "ИЛИ\n"
+                              "Введите ручные DOI в колонку 'Ручной DOI'")
             return
 
         # Переключаемся на вкладку лога
         self.tabs.setCurrentIndex(1)
 
         self.progress_bar.setValue(0)
-        self.progress_label.setText(f"Применение {len(manual_items)}...")
+        self.progress_label.setText(f"Обработка {len(selected_items)}...")
         self.process_btn.setEnabled(False)
         self.apply_manual_doi_btn.setEnabled(False)
         self.open_btn.setEnabled(False)
         self.export_ris_btn.setEnabled(False)
+        self.collect_publications_btn.setEnabled(False)
         self.log_text.append("")
         self.log_text.append("═" * 60)
-        self.log_text.append(f"💾 ПРИМЕНЕНИЕ РУЧНЫХ DOI ({len(manual_items)} ЗАПИСЕЙ)")
+        self.log_text.append(f"🔍 ОБРАБОТКА ВЫБРАННЫХ ({len(selected_items)} ЗАПИСЕЙ)")
         self.log_text.append("═" * 60)
+        if manual_count > 0:
+            self.log_text.append(f"💾 С ручными DOI: {manual_count}")
+        if auto_count > 0:
+            self.log_text.append(f"🤖 Автоматический поиск: {auto_count}")
+        self.log_text.append("")
 
-        self.worker = WorkerThread(self.input_path, user_email, manual_items,
-                                   apply_manual_only=True, previous_items=self.all_items)
+        # Проверяем наличие предыдущих результатов
+        previous_items = getattr(self, 'all_items', [])
+
+        self.worker = WorkerThread(self.input_path, user_email, selected_items,
+                                   previous_items=previous_items)
         self.worker.progress.connect(self.update_progress)
         self.worker.log.connect(self.update_log)
         self.worker.finished_success.connect(self.processing_finished)
         self.worker.finished_error.connect(self.processing_error)
         self.worker.table_data.connect(self.update_table_data)
         self.worker.start()
+
+        # Снимаем галочки после запуска worker
+        for row, checkbox in rows_to_uncheck:
+            checkbox.setChecked(False)
 
     def update_table_data(self, table_data):
         """Обновление таблицы с результатами"""
@@ -948,7 +981,9 @@ class MainWindow(QMainWindow):
             status_item = QTableWidgetItem(row_data[6])
             status_item.setFlags(status_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             status_item.setFont(QFont("Arial", 10, QFont.Weight.Bold))
-            if "НЕТ ДАННЫХ" in row_data[6]:
+            if not row_data[7].get('is_cited', True):
+                status_item.setForeground(QBrush(QColor("#9e9e9e")))  # Серый
+            elif "НЕТ ДАННЫХ" in row_data[6]:
                 status_item.setForeground(QBrush(QColor(self.colors.ERROR)))
             elif "ДУБЛЬ" in row_data[6]:
                 status_item.setForeground(QBrush(QColor(self.colors.WARNING)))
@@ -1052,6 +1087,7 @@ class MainWindow(QMainWindow):
         self.apply_manual_doi_btn.setEnabled(True)
         self.open_btn.setEnabled(True)
         self.export_ris_btn.setEnabled(True)
+        self.collect_publications_btn.setEnabled(True)
 
         # Переключаемся на вкладку результатов
         self.tabs.setCurrentIndex(0)
@@ -1168,3 +1204,197 @@ class MainWindow(QMainWindow):
                 f"Произошла ошибка при экспорте:\n{str(e)}"
             )
             self.log_text.append(f"\n❌ Ошибка экспорта RIS: {str(e)}")
+
+    def collect_publications(self):
+        """Собрать публикации в docx файл с APA форматированием"""
+        if not self.all_items or len(self.all_items) == 0:
+            QMessageBox.warning(
+                self,
+                "Нет данных",
+                "Нет обработанных данных для сбора.\n"
+                "Сначала запустите обработку документа."
+            )
+            return
+
+        # Фильтруем записи: исключаем "ОТСУТСТВУЕТ В ТЕКСТЕ"
+        filtered_items = []
+        for item in self.all_items:
+            is_cited = item.get('is_cited', True)
+            if is_cited:  # Включаем только цитируемые записи
+                filtered_items.append(item)
+
+        if len(filtered_items) == 0:
+            QMessageBox.warning(
+                self,
+                "Нет данных",
+                "Все записи имеют статус 'ОТСУТСТВУЕТ В ТЕКСТЕ'.\n"
+                "Нечего добавлять в список публикаций."
+            )
+            return
+
+        # Диалог сохранения файла
+        default_name = "publications.docx"
+        if self.input_path:
+            default_name = self.input_path.stem + "_publications.docx"
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Сохранить список публикаций",
+            str(Path.home() / default_name),
+            "Word файлы (*.docx);;Все файлы (*.*)"
+        )
+
+        if not file_path:
+            return
+
+        # Создание docx файла
+        try:
+            doc = Document()
+
+            # Настройка стилей
+            style = doc.styles['Normal']
+            font = style.font
+            font.name = 'Times New Roman'
+            font.size = Pt(12)
+
+            # Отслеживаем дубликаты DOI
+            doi_first_occurrence = {}
+
+            for item in filtered_items:
+                # Получаем исходный номер записи
+                original_index = item.get('original_index', 1)
+
+                # Определяем статус записи
+                has_data = item.get('has_data', False)
+                manual_doi = item.get('manual_doi')
+                apa_citation = item.get('apa_citation')
+
+                # Проверка на дубликат
+                is_duplicate = False
+                duplicate_index = None
+
+                if item['dois'] and len(item['dois']) > 0:
+                    primary_doi = item['dois'][0]  # Берем первый DOI
+                    if primary_doi in doi_first_occurrence:
+                        # Это дубликат
+                        is_duplicate = True
+                        duplicate_index = doi_first_occurrence[primary_doi]
+                    else:
+                        # Первое вхождение
+                        doi_first_occurrence[primary_doi] = original_index
+
+                # Создаем параграф с номером (как обычный текст, не встроенная нумерация)
+                p = doc.add_paragraph()
+                p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+                # Добавляем номер из исходного документа
+                run_number = p.add_run(f"{original_index}. ")
+                run_number.font.name = 'Times New Roman'
+                run_number.font.size = Pt(12)
+
+                if is_duplicate:
+                    # ДУБЛЬ - только текст "ДУБЛЬ № X"
+                    run_text = p.add_run(f"ДУБЛЬ № {duplicate_index}")
+                    run_text.font.name = 'Times New Roman'
+                    run_text.font.size = Pt(12)
+
+                elif not has_data:
+                    # НЕТ ДАННЫХ - название с гиперссылкой
+                    title = item.get('title', 'Без названия')
+                    url = item.get('url', '')
+
+                    # Добавляем название как гиперссылку
+                    if url:
+                        # В python-docx гиперссылки добавляются через XML
+                        # Для упрощения просто добавим текст с URL
+                        run_text = p.add_run(f"{title} ")
+                        run_text.font.name = 'Times New Roman'
+                        run_text.font.size = Pt(12)
+
+                        # Добавляем гиперссылку
+                        add_hyperlink(p, url, url)
+                    else:
+                        run_text = p.add_run(title)
+                        run_text.font.name = 'Times New Roman'
+                        run_text.font.size = Pt(12)
+
+                else:
+                    # Есть данные - полная APA цитата
+                    if apa_citation:
+                        # Убираем HTML теги из APA цитаты
+                        clean_apa = re.sub(r'<[^>]+>', '', apa_citation)
+                        run_text = p.add_run(clean_apa)
+                        run_text.font.name = 'Times New Roman'
+                        run_text.font.size = Pt(12)
+                    else:
+                        # Если нет APA, используем название
+                        title = item.get('title', 'Без названия')
+                        run_text = p.add_run(title)
+                        run_text.font.name = 'Times New Roman'
+                        run_text.font.size = Pt(12)
+
+            # Сохраняем документ
+            doc.save(file_path)
+
+            QMessageBox.information(
+                self,
+                "Список публикаций создан",
+                f"✅ Документ успешно сохранен!\n\n"
+                f"Файл: {Path(file_path).name}\n"
+                f"Включено записей: {len(filtered_items)}\n"
+                f"(Исключены записи со статусом 'ОТСУТСТВУЕТ В ТЕКСТЕ')"
+            )
+            self.log_text.append(f"\n✅ Список публикаций создан: {file_path}")
+            self.log_text.append(f"   Включено записей: {len(filtered_items)}")
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Произошла ошибка при создании файла:\n{str(e)}"
+            )
+            self.log_text.append(f"\n❌ Ошибка создания списка публикаций: {str(e)}")
+
+def add_hyperlink(paragraph, url, text):
+    """Добавить гиперссылку в параграф docx
+
+    Args:
+        paragraph: Параграф docx
+        url: URL для гиперссылки
+        text: Текст гиперссылки
+    """
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    # Получаем ID relationship
+    part = paragraph.part
+    r_id = part.relate_to(url, 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink', is_external=True)
+
+    # Создаем элемент гиперссылки
+    hyperlink = OxmlElement('w:hyperlink')
+    hyperlink.set(qn('r:id'), r_id)
+
+    # Создаем новый run
+    new_run = OxmlElement('w:r')
+    rPr = OxmlElement('w:rPr')
+
+    # Стиль гиперссылки (синий, подчеркнутый)
+    c = OxmlElement('w:color')
+    c.set(qn('w:val'), '0000FF')
+    rPr.append(c)
+
+    u = OxmlElement('w:u')
+    u.set(qn('w:val'), 'single')
+    rPr.append(u)
+
+    new_run.append(rPr)
+
+    # Создаем текстовый элемент
+    t = OxmlElement('w:t')
+    t.text = text
+    new_run.append(t)
+
+    hyperlink.append(new_run)
+
+    # Добавляем гиперссылку в параграф
+    paragraph._p.append(hyperlink)

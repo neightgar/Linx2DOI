@@ -40,6 +40,9 @@ class HTMLGenerator:
                 else:
                     doi_tracker[primary_doi] = True
 
+        # Подсчет нецитируемых записей
+        uncited_items = sum(1 for item in items if not item.get('is_cited', True))
+
         html = f"""<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -151,6 +154,19 @@ h1 {{
     font-weight: bold;
     margin-left: 10px;
 }}
+.uncited-badge {{
+    background: #9e9e9e;
+    color: white;
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: bold;
+    margin-left: 10px;
+}}
+.item.uncited {{
+    border-left-color: #9e9e9e;
+    background: #f5f5f5;
+}}
 .manual-doi-badge {{
     background: #10b981;
     color: white;
@@ -254,6 +270,10 @@ h1 {{
             <div class="stat-value">{duplicates}</div>
             <div class="stat-label">Дублей</div>
         </div>
+        <div class="stat-item">
+            <div class="stat-value">{uncited_items}</div>
+            <div class="stat-label">Не цитируются</div>
+        </div>
     </div>
 """
 
@@ -275,7 +295,10 @@ h1 {{
                 else:
                     doi_html_tracker[primary_doi] = item.get('original_index', 0)
 
-            if not item.get('has_data', True):
+            if not item.get('is_cited', True):
+                item_class += " uncited"
+                badge_html = """<span class="uncited-badge">ОТСУТСТВУЕТ В ТЕКСТЕ</span>"""
+            elif not item.get('has_data', True):
                 item_class += " no-data"
                 badge_html = """<span class="no-data-badge">НЕТ ДАННЫХ</span>"""
             elif is_duplicate:
@@ -359,7 +382,9 @@ h1 {{
                     # Первое вхождение
                     doi_first_occurrence[primary_doi] = item.get('original_index', idx + 1)
 
-            if not item.get('has_data', True):
+            if not item.get('is_cited', True):
+                status_parts.append("ОТСУТСТВУЕТ В ТЕКСТЕ")
+            elif not item.get('has_data', True):
                 status_parts.append("НЕТ ДАННЫХ")
             elif is_duplicate:
                 status_parts.append(f"ДУБЛЬ № {duplicate_index}")

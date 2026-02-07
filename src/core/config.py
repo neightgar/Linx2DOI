@@ -16,3 +16,15 @@ SETTINGS_APP = "APAFormatter"
 MAX_RETRIES = 3
 REQUEST_TIMEOUT = 10
 RATE_LIMIT_DELAY = 0.5  # секунды между запросами DOI метаданных
+
+# Максимальный размер диапазона цитирований (защита от [1-999999])
+MAX_CITATION_RANGE = 100
+
+# Цвета для статусов
+STATUS_COLORS = {
+    'NOT_IN_TEXT': '#9e9e9e',  # Серый
+    'NO_DATA': '#dc3545',      # Красный
+    'DUPLICATE': '#f59e0b',    # Оранжевый
+    'MANUAL': '#10b981',       # Зелёный
+    'OK': '#63b3ed'            # Синий
+}

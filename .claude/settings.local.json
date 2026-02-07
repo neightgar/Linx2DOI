@@ -9,7 +9,16 @@
       "Bash(git branch:*)",
       "Bash(git add:*)",
       "Bash(gh:*)",
-      "Bash(bash:*)"
+      "Bash(bash:*)",
+      "Bash(timeout:*)",
+      "Bash(exit:*)",
+      "Bash(iconv:*)",
+      "Bash(cat:*)",
+      "Bash(echo:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)"
     ]
   }
 }

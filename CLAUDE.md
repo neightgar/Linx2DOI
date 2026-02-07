@@ -62,9 +62,15 @@ python main.py
 - **NEW v1.6**: Supports Word built-in numbering via `numPr` detection
 - **NEW v1.6**: Extracts hyperlinks from Word documents using `qn('r:id')`
 - **NEW v1.6**: Merges split URLs across paragraphs (e.g., `https://` + next paragraph)
+- **NEW v1.7**: Validates hyperlink completeness (detects truncated URLs)
+- **NEW v1.7**: Citation analysis - scans text for `[1]`, `[2-5]`, `[1, 3, 5-7]` patterns
+- **NEW v1.7**: Marks records as cited/uncited via `is_cited` flag
 - Expected format: `1. Article Title..... https://url.com` or Word auto-numbered lists
 - Methods:
   - `collect_items_from_document()` - main parsing with while loop for URL merging
+  - `collect_citations_from_text()` - **NEW v1.7**: parses citations from document text
+  - `expand_citation_range()` - **NEW v1.7**: expands `5-7` to `[5, 6, 7]`
+  - `is_incomplete_url()` - **NEW v1.7**: validates URL completeness (ResearchGate, PubMed, PMC)
   - `extract_item_from_text()` - regex pattern: `r'^\s*\d+\.\s*(.*?)(https?://.+)$'`
   - `extract_hyperlinks_from_paragraph()` - **NEW v1.6**: extracts URLs from hyperlinks
   - `get_paragraph_number()` - **NEW v1.6**: detects Word numbering
@@ -132,22 +138,25 @@ python main.py
 - Two color themes: `AppColors` (dark) and `LightColors` (light, default)
 - **NEW v1.6**: Progress bar text color adapts to theme (dark in light, light in dark)
 - **NEW v1.6**: Selected table rows keep dark text in light theme (font-weight: 700)
+- **NEW v1.7**: Checkbox column now visible for selective processing
 - Theme switching button in header
 - Email input, file selection, results table, progress bar (300×22px), log area
 - Table features:
   - Editable "Manual DOI" column with top-aligned text
-  - Hidden "Select" column (reserved for future features)
+  - Visible "Select" column for manual record selection (**NEW v1.7**)
   - Clickable column headers (click "✓" to select/deselect all)
   - Auto-resizing columns
 - Buttons:
-  - Start Processing
-  - Apply Manual DOI
+  - Start Processing - full document processing
+  - Process Selected - **NEW v1.7**: unified button (checkbox OR manual DOI logic)
   - Open Result (HTML)
   - Export to RIS (NEW v1.5)
+  - Collect Publications - **NEW v1.7**: creates APA-formatted docx with original numbering
   - Theme Toggle (NEW v1.5)
   - Help
 - Connects worker signals to UI updates
-- Methods: `toggle_theme()`, `export_to_ris()`, `apply_theme()`
+- Methods: `toggle_theme()`, `export_to_ris()`, `collect_publications()`, `apply_theme()`, `process_selected()`
+- **NEW v1.7**: `collect_publications()` - generates Word document with APA citations, preserves original numbering, excludes uncited records
 
 ## Architecture Patterns
 

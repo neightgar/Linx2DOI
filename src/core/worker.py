@@ -23,14 +23,13 @@ class WorkerThread(QThread):
     table_data = pyqtSignal(list)
     item_updated = pyqtSignal(dict)
 
-    def __init__(self, input_path, user_email, selected_items=None, apply_manual_only=False,
-                 previous_items=None):
+    def __init__(self, input_path, user_email, selected_items=None, previous_items=None):
         super().__init__()
         self.input_path = input_path
         self.user_email = user_email
         self.selected_items = selected_items if selected_items else []
-        self.apply_manual_only = apply_manual_only
         self.previous_items = previous_items if previous_items else []
+        self.is_user_selection = bool(selected_items)  # Флаг явного выбора пользователя
 
         # Инициализация модулей
         self.doi_resolver = DOIResolver(user_email, self.log.emit)
@@ -49,8 +48,31 @@ class WorkerThread(QThread):
         Returns:
             dict: Результат обработки
         """
+        # Проверка: пропускаем автопоиск для нецитируемых записей
+        # НО ТОЛЬКО если это НЕ явный выбор пользователя
+        if not item.get('is_cited', True) and not manual_doi and not self.is_user_selection:
+            self.log.emit(f"  ⚠️ Пропуск автопоиска: запись отсутствует в тексте")
+            return {
+                'original_index': item['original_index'],
+                'title': item['title'],
+                'url': item['url'],
+                'dois': [],
+                'article_title': None,
+                'apa_citation': None,
+                'has_data': False,
+                'manual_doi': None,
+                'is_cited': False,
+                'uncited_reason': 'NOT_IN_TEXT'
+            }
+
+        # Если пользователь явно выбрал запись - обрабатываем независимо от is_cited
+        if self.is_user_selection and not item.get('is_cited', True):
+            self.log.emit(f"  🎯 Явный выбор пользователя: обработка несмотря на статус 'не цитируется'")
+
         # Разрешаем DOI
-        auto_search = not self.apply_manual_only or not manual_doi
+        # Если есть ручной DOI, не делаем автопоиск
+        auto_search = not manual_doi
+
         dois_list = self.doi_resolver.resolve_doi(item, manual_doi, auto_search)
 
         article_title = None
@@ -75,7 +97,8 @@ class WorkerThread(QThread):
             'article_title': article_title,
             'apa_citation': apa_citation,
             'has_data': has_data,
-            'manual_doi': manual_doi if manual_doi else None
+            'manual_doi': manual_doi if manual_doi else None,
+            'is_cited': item.get('is_cited', True)
         }
 
         status = "✅" if has_data else "⚠️"
@@ -84,71 +107,6 @@ class WorkerThread(QThread):
 
         return result
 
-    def process_only_manual_items(self, all_items, manual_dois_map):
-        """Обрабатывает только элементы с ручными DOI, сохраняя остальные
-
-        Args:
-            all_items: Все элементы из документа
-            manual_dois_map: Словарь {original_index: manual_doi}
-
-        Returns:
-            list: Список результатов обработки
-        """
-        self.log.emit(f"\n🔧 ОБРАБОТКА ТОЛЬКО РУЧНЫХ DOI")
-        self.log.emit(f"Найдено {len(manual_dois_map)} записей с ручными DOI")
-
-        results = []
-        self.total_items_to_process = len(manual_dois_map)
-        self.processed_items = 0
-
-        # Обрабатываем только элементы с ручными DOI
-        processed_indices = set()
-
-        for original_index, manual_doi in manual_dois_map.items():
-            # Находим элемент по оригинальному индексу
-            item_to_process = None
-            for item in all_items:
-                if item['original_index'] == original_index:
-                    item_to_process = item
-                    break
-
-            if item_to_process:
-                self.log.emit(f"\n🔄 ОБРАБОТКА ЗАПИСИ #{original_index} С РУЧНЫМ DOI")
-                result = self.process_item(item_to_process, manual_doi)
-                results.append(result)
-                processed_indices.add(original_index)
-
-                # Обновляем прогресс
-                self.processed_items += 1
-                progress = int((self.processed_items / self.total_items_to_process) * 100)
-                self.progress.emit(progress, f"Ручные DOI: {self.processed_items}/{self.total_items_to_process}")
-
-        # Добавляем необработанные элементы (без изменений)
-        for item in all_items:
-            if item['original_index'] not in processed_indices:
-                # Находим соответствующий результат в предыдущих данных
-                existing_result = None
-                for prev_item in self.previous_items:
-                    if prev_item.get('original_index') == item['original_index']:
-                        existing_result = prev_item
-                        break
-
-                if existing_result:
-                    results.append(existing_result)
-                    self.log.emit(f"📋 Сохранена запись #{item['original_index']} (без изменений)")
-                else:
-                    # Если нет предыдущих данных, создаем новый результат
-                    result = self.process_item(item)
-                    results.append(result)
-
-        # Сортируем по оригинальному индексу
-        results.sort(key=lambda x: x.get('original_index', 0))
-
-        self.log.emit(f"\n✅ ОБРАБОТКА ЗАВЕРШЕНА")
-        self.log.emit(f"Обработано записей с ручными DOI: {len(manual_dois_map)}")
-        self.log.emit(f"Всего записей в результате: {len(results)}")
-
-        return results
 
     def run(self):
         """Главная функция обработки"""
@@ -163,30 +121,18 @@ class WorkerThread(QThread):
                 self.finished_error.emit("⚠️ Не найдено пунктов для обработки")
                 return
 
-            # Если это обработка только ручных DOI
-            if self.apply_manual_only and self.selected_items:
-                self.log.emit(f"\n🔧 РЕЖИМ: ОБРАБОТКА ТОЛЬКО РУЧНЫХ DOI")
-
-                # Создаем карту ручных DOI
-                manual_dois_map = {}
-                for selected_item in self.selected_items:
-                    if 'original_item' in selected_item and selected_item.get('manual_doi'):
-                        original_index = selected_item['original_item'].get('original_index')
-                        if original_index:
-                            manual_dois_map[original_index] = selected_item['manual_doi']
-                            self.log.emit(f"Запись #{original_index}: ручной DOI {selected_item['manual_doi']}")
-
-                if not manual_dois_map:
-                    self.finished_error.emit("⚠️ Не найдено ручных DOI для обработки")
-                    return
-
-                # Обрабатываем только элементы с ручными DOI
-                results = self.process_only_manual_items(all_items, manual_dois_map)
-
-            # Если это обработка выбранных элементов (повторный парсинг)
-            elif self.selected_items:
-                self.log.emit(f"\n🔄 РЕЖИМ: ПОВТОРНЫЙ ПАРСИНГ ВЫБРАННЫХ")
+            # Если это обработка выбранных элементов
+            if self.selected_items:
+                self.log.emit(f"\n🔄 РЕЖИМ: ОБРАБОТКА ВЫБРАННЫХ")
                 self.log.emit(f"Выбрано {len(self.selected_items)} записей")
+
+                # Подсчитываем количество с ручными DOI и без
+                manual_count = sum(1 for item in self.selected_items if item.get('manual_doi'))
+                auto_count = len(self.selected_items) - manual_count
+                if manual_count > 0:
+                    self.log.emit(f"   💾 С ручными DOI: {manual_count}")
+                if auto_count > 0:
+                    self.log.emit(f"   🤖 Автопоиск: {auto_count}")
 
                 results = []
                 self.total_items_to_process = len(self.selected_items)
@@ -202,7 +148,12 @@ class WorkerThread(QThread):
                             item_to_process = items_map[original_index]
                             manual_doi = selected_item.get('manual_doi')
 
-                            self.log.emit(f"\n🔄 ОБРАБОТКА ЗАПИСИ #{original_index}")
+                            # Логируем тип обработки
+                            if manual_doi:
+                                self.log.emit(f"\n💾 ЗАПИСЬ #{original_index} (ручной DOI: {manual_doi})")
+                            else:
+                                self.log.emit(f"\n🤖 ЗАПИСЬ #{original_index} (автопоиск)")
+
                             result = self.process_item(item_to_process, manual_doi)
                             results.append(result)
 
@@ -210,7 +161,7 @@ class WorkerThread(QThread):
                             self.processed_items += 1
                             progress = int((self.processed_items / self.total_items_to_process) * 100)
                             self.progress.emit(progress,
-                                               f"Повторный парсинг: {self.processed_items}/{self.total_items_to_process}")
+                                               f"Обработка: {self.processed_items}/{self.total_items_to_process}")
 
                 # Добавляем необработанные элементы из предыдущих результатов
                 processed_indices = {item['original_index'] for item in results}
@@ -249,9 +200,7 @@ class WorkerThread(QThread):
             self.progress.emit(90, "Генерация HTML...")
             self.log.emit("\n🎨 ГЕНЕРАЦИЯ HTML-РЕЗУЛЬТАТА...")
 
-            if self.apply_manual_only:
-                output_path = self.input_path.parent / f"{self.input_path.stem}_apa_manual.html"
-            elif self.selected_items and not self.apply_manual_only:
+            if self.selected_items:
                 output_path = self.input_path.parent / f"{self.input_path.stem}_apa_updated.html"
             else:
                 output_path = self.input_path.parent / f"{self.input_path.stem}_apa.html"

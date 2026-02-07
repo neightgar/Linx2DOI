@@ -6,8 +6,9 @@ DOI Extractor & APA Formatter
 
 import sys
 from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtGui import QIcon
 
-from src.gui.main_window import MainWindow
+from src.gui.main_window import MainWindow, get_icon_path
 
 
 def check_dependencies():
@@ -64,6 +65,11 @@ def main():
     """Главная функция приложения"""
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
+
+    # Установка иконки приложения
+    icon_path = get_icon_path()
+    if icon_path:
+        app.setWindowIcon(QIcon(str(icon_path)))
 
     # Применяем темную тему
     setup_dark_theme(app)
