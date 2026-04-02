@@ -11,7 +11,7 @@ from PyQt6.QtGui import QIcon
 from src.gui.main_window import MainWindow, get_icon_path
 
 
-def check_dependencies():
+def check_dependencies() -> bool:
     """Проверка наличия необходимых зависимостей"""
     try:
         import requests
@@ -28,7 +28,7 @@ def check_dependencies():
         return False
 
 
-def setup_dark_theme(app):
+def setup_dark_theme(app: QApplication) -> None:
     """Настройка темной темы Fusion"""
     from PyQt6.QtGui import QPalette, QColor
     from PyQt6.QtCore import Qt
@@ -61,7 +61,7 @@ def setup_dark_theme(app):
     app.setPalette(dark_palette)
 
 
-def main():
+def main() -> None:
     """Главная функция приложения"""
     app = QApplication(sys.argv)
     app.setStyle("Fusion")

@@ -43,6 +43,12 @@ main_old.py
 *.ris
 !example.docx
 
+# PyInstaller
+Linx2DOI.spec
+
+# Claude Code settings
+.claude/
+
 # Logs
 *.log
 

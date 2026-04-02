@@ -1,7 +1,6 @@
 """
 Парсинг документов Word для извлечения списка статей
 """
-
 import re
 from docx import Document
 from docx.oxml.ns import qn
@@ -9,6 +8,114 @@ from docx.oxml.ns import qn
 
 class DocumentParser:
     """Парсер для извлечения статей из .docx документов"""
+
+    @staticmethod
+    def is_bibliography_section(text):
+        """Проверяет, является ли текст заголовком раздела библиографии
+
+        Args:
+            text: Текст параграфа
+
+        Returns:
+            bool: True если это заголовок раздела литературы
+        """
+        if not text:
+            return False
+
+        text_lower = text.strip().lower()
+
+        bibliography_keywords = [
+            'references',
+            'reference list',
+            'список литературы',
+            'литература',
+            'библиография',
+            'bibliography',
+            'works cited',
+            'источники',
+            'used literature',
+            'использованная литература'
+        ]
+
+        for keyword in bibliography_keywords:
+            if keyword in text_lower:
+                if len(text.strip()) < 100:
+                    return True
+
+        return False
+
+    @staticmethod
+    def extract_isbn_from_text(text):
+        """Извлекает ISBN из текста
+
+        Поддерживает форматы:
+        - ISBN-13: 978-0-123-45678-9
+        - ISBN-10: 0-123-45678-9
+        - С префиксом: ISBN: 978-0815344322
+
+        Args:
+            text: Текст для поиска ISBN
+
+        Returns:
+            str или None: Найденный ISBN (очищенный) или None
+        """
+        if not text:
+            return None
+
+        # Паттерн для ISBN-13 (начинается с 978 или 979)
+        isbn13_pattern = r'(?:ISBN[:\s]*)?(97[89][-\s]?\d{1,5}[-\s]?\d{1,7}[-\s]?\d{1,7}[-\s]?\d)'
+        # Паттерн для ISBN-10
+        isbn10_pattern = r'(?:ISBN[:\s]*)?(\d[-\s]?\d{3}[-\s]?\d{5}[-\s]?\d{3}[-\s][\dX])'
+
+        # Сначала ищем ISBN-13
+        match = re.search(isbn13_pattern, text, re.IGNORECASE)
+        if match:
+            isbn = re.sub(r'[-\s]', '', match.group(1))
+            if len(isbn) == 13:
+                return isbn
+
+        # Затем ISBN-10
+        match = re.search(isbn10_pattern, text, re.IGNORECASE)
+        if match:
+            isbn = re.sub(r'[-\s]', '', match.group(1))
+            if len(isbn) == 10:
+                return isbn
+
+        return None
+
+    @staticmethod
+    def extract_url_from_text(text):
+        """Извлекает URL из текста (не из гиперссылок Word)
+
+        Поддерживает форматы:
+        - https://doi.org/...
+        - doi:...
+        - http://...
+
+        Args:
+            text: Текст для поиска URL
+
+        Returns:
+            str или None: Найденный URL или None
+        """
+        # Сначала ищем doi:номер
+        doi_pattern = r'(doi:\s*10\.\d{4,9}/[-._;()/:A-Za-z0-9]+)'
+        doi_match = re.search(doi_pattern, text, re.IGNORECASE)
+        if doi_match:
+            doi_url = doi_match.group(1).strip()
+            # Нормализуем doi: в https://doi.org/
+            if doi_url.lower().startswith('doi:'):
+                doi_number = doi_url[4:].strip()
+                return f'https://doi.org/{doi_number}'
+
+        # Затем ищем обычные http/https URL
+        url_pattern = r'(https?://[^\s<>"{}|\\^`\[\]]+)'
+        matches = re.findall(url_pattern, text)
+        if matches:
+            url = matches[0].strip()
+            url = re.sub(r'[.,;:)]+$', '', url)
+            return url
+        return None
 
     @staticmethod
     def extract_hyperlinks_from_paragraph(paragraph, doc):
@@ -24,17 +131,17 @@ class DocumentParser:
         hyperlinks = []
 
         try:
-            # Получаем relationships документа
             rels = doc.part.rels
 
-            # Ищем гиперссылки в XML параграфа
             for hyperlink in paragraph._element.xpath('.//w:hyperlink'):
-                # Получаем relationship ID
                 rid = hyperlink.get(qn('r:id'))
                 if rid and rid in rels:
-                    # Получаем целевой URL
                     target_url = rels[rid].target_ref
                     if target_url:
+                        # ✅ Преобразуем doi: в https://doi.org/
+                        if target_url.lower().startswith('doi:'):
+                            doi_number = target_url[4:].strip()
+                            target_url = f'https://doi.org/{doi_number}'
                         hyperlinks.append(target_url)
         except Exception:
             pass
@@ -57,37 +164,21 @@ class DocumentParser:
 
     @staticmethod
     def is_incomplete_url(url):
-        """Проверяет, является ли URL неполным/усеченным
-
-        Обнаруживает усеченные URL, которые могут возникнуть при
-        копировании гиперссылок между документами
-
-        Args:
-            url: URL для проверки
-
-        Returns:
-            bool: True если URL выглядит неполным
-        """
+        """Проверяет, является ли URL неполным/усеченным"""
         if not url:
             return True
 
-        # ResearchGate URL должны содержать ID публикации
         if 'researchgate.net/publication/' in url.lower():
-            # Полный URL: https://www.researchgate.net/publication/12345_Title
-            # Усеченный: https://www.researchgate.net/publication/
             parts = url.split('/publication/')
             if len(parts) > 1:
                 publication_part = parts[1].strip()
-                # Если после /publication/ ничего нет или только слэш - URL усечен
                 if not publication_part or publication_part == '/':
                     return True
 
-        # PubMed URL должны содержать PMID
         if 'pubmed.ncbi.nlm.nih.gov/' in url.lower():
             if url.rstrip('/').endswith('pubmed.ncbi.nlm.nih.gov'):
                 return True
 
-        # PMC URL должны содержать PMCID
         if 'pmc.ncbi.nlm.nih.gov/articles/' in url.lower():
             if url.rstrip('/').endswith('/articles'):
                 return True
@@ -96,17 +187,9 @@ class DocumentParser:
 
     @staticmethod
     def expand_citation_range(range_str):
-        """Раскрывает диапазон '5-7' в [5, 6, 7]
-
-        Args:
-            range_str: строка вида "5-7" или "10"
-
-        Returns:
-            list: список номеров или пустой список при ошибке
-        """
+        """Раскрывает диапазон '5-7' в [5, 6, 7]"""
         range_str = range_str.strip()
 
-        # Проверка на диапазон
         if '-' in range_str:
             parts = range_str.split('-')
             if len(parts) != 2:
@@ -116,18 +199,16 @@ class DocumentParser:
                 start = int(parts[0].strip())
                 end = int(parts[1].strip())
 
-                # Валидация диапазона
                 if start > end:
-                    return []  # Некорректный диапазон
+                    return []
 
                 if end - start > 100:
-                    return []  # Слишком большой диапазон
+                    return []
 
                 return list(range(start, end + 1))
             except ValueError:
                 return []
         else:
-            # Одиночное число
             try:
                 return [int(range_str)]
             except ValueError:
@@ -135,36 +216,22 @@ class DocumentParser:
 
     @staticmethod
     def collect_citations_from_text(doc):
-        """Собирает все номера цитирований из текста документа
-
-        Ищет шаблоны: [1], [2, 4], [10-15], [1, 3, 5-7]
-
-        Args:
-            doc: Document объект из python-docx
-
-        Returns:
-            set: Множество номеров (int), упомянутых в тексте
-        """
+        """Собирает все номера цитирований из текста документа"""
         cited_numbers = set()
 
-        # Регекс для поиска цитирований в квадратных скобках
         citation_pattern = r'\[(\d+(?:\s*[-,]\s*\d+)*(?:\s*,\s*\d+(?:\s*-\s*\d+)*)*)\]'
 
-        # Обработка параграфов
         for paragraph in doc.paragraphs:
             text = paragraph.text
             matches = re.findall(citation_pattern, text)
 
             for match in matches:
-                # Разбиваем по запятым
                 parts = match.split(',')
-
                 for part in parts:
                     part = part.strip()
                     numbers = DocumentParser.expand_citation_range(part)
                     cited_numbers.update(numbers)
 
-        # Обработка таблиц
         for table in doc.tables:
             for row in table.rows:
                 for cell in row.cells:
@@ -174,7 +241,6 @@ class DocumentParser:
 
                         for match in matches:
                             parts = match.split(',')
-
                             for part in parts:
                                 part = part.strip()
                                 numbers = DocumentParser.expand_citation_range(part)
@@ -186,24 +252,33 @@ class DocumentParser:
     def extract_item_from_text(text, original_index):
         """Извлекает информацию о статье из текста
 
-        Args:
-            text: Текст строки из документа
-            original_index: Порядковый номер записи
-
-        Returns:
-            dict или None: Словарь с данными статьи или None если формат не распознан
+        ✅ ИЗМЕНЕНО: URL теперь опционален (книги без URL будут парситься)
+        ✅ ИЗМЕНЕНО: Извлечение ISBN из текста
         """
         if not text.strip():
             return None
 
-        # Паттерн: номер. название URL (допускаем пробелы в URL)
-        pattern = r'^\s*\d+\.\s*(.*?)(https?://.+)$'
+        # ✅ Паттерн: номер. название [URL] — URL опционален
+        pattern = r'^\s*\d+\.\s*(.+?)(?:\s+(https?://.+))?$'
         match = re.match(pattern, text.strip())
         if not match:
             return None
 
-        title_raw, url_raw = match.groups()
-        url = DocumentParser.clean_url(url_raw)
+        title_raw = match.group(1).strip()
+        url_raw = match.group(2) if match.group(2) else ''
+
+        # Если URL не найден в паттерне, ищем в тексте
+        if not url_raw:
+            url_raw = DocumentParser.extract_url_from_text(text)
+
+        url = DocumentParser.clean_url(url_raw) if url_raw else ''
+
+        # ✅ Извлечение ISBN
+        isbn = DocumentParser.extract_isbn_from_text(text)
+
+        # Удаляем URL из заголовка если он там остался
+        if url and url in title_raw:
+            title_raw = title_raw.replace(url, '').strip()
 
         # Очистка заголовка от точек в конце
         title_clean = re.sub(r'[\s\.]*\.{2,}[\s\.]*$', '', title_raw.rstrip(' \t.')).strip()
@@ -214,114 +289,101 @@ class DocumentParser:
             'original_index': original_index,
             'title': title_clean,
             'url': url,
+            'isbn': isbn,  # ✅ ДОБАВЛЕНО
             'normalized_title': DocumentParser.normalize_title(title_clean),
             'text': text.strip()
         }
 
     @staticmethod
     def get_paragraph_number(paragraph):
-        """Извлекает номер из встроенной нумерации Word
-
-        Args:
-            paragraph: Объект параграфа python-docx
-
-        Returns:
-            int или None: Номер элемента списка или None
-        """
+        """Извлекает номер из встроенной нумерации Word"""
         try:
-            # Проверяем наличие встроенной нумерации Word
             numPr = paragraph._element.pPr.numPr if paragraph._element.pPr is not None else None
             if numPr is not None:
-                # Получаем уровень нумерации (ilvl)
                 ilvl_element = numPr.ilvl
                 if ilvl_element is not None:
-                    # Нумерация найдена - используем position_counter снаружи
                     return True
         except (AttributeError, KeyError):
             pass
         return None
 
     @staticmethod
-    def collect_items_from_document(doc):
+    def collect_items_from_document(doc, analyze_citations=True):
         """Собирает все элементы из документа с сохранением порядка
 
         Args:
-            doc: Document объект из python-docx
+            doc: Document объект
+            analyze_citations: Если True - анализировать цитирования в тексте
 
         Returns:
-            list: Список словарей с данными статей
+            list: Список элементов с флагом is_cited
         """
-        # Сначала собираем цитирования из всего текста
-        cited_numbers = DocumentParser.collect_citations_from_text(doc)
+        cited_numbers = DocumentParser.collect_citations_from_text(doc) if analyze_citations else None
 
         items = []
         position_counter = 1
 
+        # ✅ Поиск раздела библиографии
+        bibliography_start = None
+        for i, paragraph in enumerate(doc.paragraphs):
+            text = paragraph.text.strip()
+            if DocumentParser.is_bibliography_section(text):
+                bibliography_start = i
+                break
+
+        # ✅ Обрабатываем только параграфы ПОСЛЕ заголовка библиографии
+        paragraphs_to_process = doc.paragraphs
+        if bibliography_start is not None:
+            paragraphs_to_process = doc.paragraphs[bibliography_start + 1:]
+
         # Обработка параграфов
         i = 0
-        while i < len(doc.paragraphs):
-            paragraph = doc.paragraphs[i]
+        while i < len(paragraphs_to_process):
+            paragraph = paragraphs_to_process[i]
             text = paragraph.text.strip()
 
-            # Проверка на неполный URL (разбит на несколько параграфов)
             if text and re.search(r'https?://$', text):
-                # URL обрывается на протокол - объединяем со следующим параграфом
-                if i + 1 < len(doc.paragraphs):
-                    next_para = doc.paragraphs[i + 1]
+                if i + 1 < len(paragraphs_to_process):
+                    next_para = paragraphs_to_process[i + 1]
                     next_text = next_para.text.strip()
-
-                    # Проверяем, что следующий параграф не имеет Word нумерации
                     next_has_word_num = DocumentParser.get_paragraph_number(next_para)
 
                     if not next_has_word_num and next_text:
-                        # Объединяем параграфы
                         text = text + next_text
-                        i += 1  # Пропускаем следующий параграф
+                        i += 1
 
-            # Проверяем: есть ли номер в тексте или встроенная нумерация Word
             has_text_number = text and re.match(r'^\s*\d+\.\s', text)
             has_word_numbering = DocumentParser.get_paragraph_number(paragraph)
 
-            # Извлекаем гиперссылки из параграфа (приоритет!)
             hyperlinks = DocumentParser.extract_hyperlinks_from_paragraph(paragraph, doc)
 
             if has_text_number:
-                # Обычная текстовая нумерация
                 if hyperlinks and not DocumentParser.is_incomplete_url(hyperlinks[0]):
-                    # Есть гиперссылка И она полная - используем её URL
-                    # Извлекаем название из текста (до URL)
                     title_match = re.match(r'^\s*\d+\.\s*(.+?)(?:\s+https?://.*)?$', text)
                     title = title_match.group(1).strip() if title_match else text
-                    # Создаем item с URL из гиперссылки
                     numbered_text = f"{position_counter}. {title} {hyperlinks[0]}"
                     item = DocumentParser.extract_item_from_text(numbered_text, position_counter)
                 else:
-                    # Нет гиперссылки ИЛИ она усечена - парсим текст как обычно
                     item = DocumentParser.extract_item_from_text(text, position_counter)
 
                 if item:
-                    # Добавляем флаг цитирования
-                    item['is_cited'] = position_counter in cited_numbers
+                    # ✅ Если анализ цитирований отключён (cited_numbers=None), все записи citable
+                    item['is_cited'] = cited_numbers is None or position_counter in cited_numbers
                     items.append(item)
                     position_counter += 1
 
             elif has_word_numbering and text:
-                # Встроенная нумерация Word
                 if hyperlinks and not DocumentParser.is_incomplete_url(hyperlinks[0]):
-                    # Есть гиперссылка И она полная - используем её URL
-                    # Извлекаем название из текста (убираем URL если есть)
                     title = re.sub(r'\s+https?://.*$', '', text).strip()
-                    # Создаем item с URL из гиперссылки
                     numbered_text = f"{position_counter}. {title} {hyperlinks[0]}"
                     item = DocumentParser.extract_item_from_text(numbered_text, position_counter)
                 else:
-                    # Нет гиперссылки ИЛИ она усечена - добавляем номер к тексту
                     numbered_text = f"{position_counter}. {text}"
                     item = DocumentParser.extract_item_from_text(numbered_text, position_counter)
 
                 if item:
-                    # Добавляем флаг цитирования
-                    item['is_cited'] = position_counter in cited_numbers
+                    # ✅ Если анализ цитирований отключён (cited_numbers=None), все записи citable
+                    item['is_cited'] = cited_numbers is None or position_counter in cited_numbers
                     items.append(item)
                     position_counter += 1
 
@@ -336,41 +398,35 @@ class DocumentParser:
 
                         has_text_number = text and re.match(r'^\s*\d+\.\s', text)
                         has_word_numbering = DocumentParser.get_paragraph_number(paragraph)
-
-                        # Извлекаем гиперссылки из параграфа
                         hyperlinks = DocumentParser.extract_hyperlinks_from_paragraph(paragraph, doc)
 
                         if has_text_number:
                             if hyperlinks and not DocumentParser.is_incomplete_url(hyperlinks[0]):
-                                # Есть гиперссылка И она полная - используем её URL
                                 title_match = re.match(r'^\s*\d+\.\s*(.+?)(?:\s+https?://.*)?$', text)
                                 title = title_match.group(1).strip() if title_match else text
                                 numbered_text = f"{position_counter}. {title} {hyperlinks[0]}"
                                 item = DocumentParser.extract_item_from_text(numbered_text, position_counter)
                             else:
-                                # Нет гиперссылки ИЛИ она усечена - парсим текст как обычно
                                 item = DocumentParser.extract_item_from_text(text, position_counter)
 
                             if item:
-                                # Добавляем флаг цитирования
-                                item['is_cited'] = position_counter in cited_numbers
+                                # ✅ Если анализ цитирований отключён (cited_numbers=None), все записи citable
+                                item['is_cited'] = cited_numbers is None or position_counter in cited_numbers
                                 items.append(item)
                                 position_counter += 1
 
                         elif has_word_numbering and text:
                             if hyperlinks and not DocumentParser.is_incomplete_url(hyperlinks[0]):
-                                # Есть гиперссылка И она полная - используем её URL
                                 title = re.sub(r'\s+https?://.*$', '', text).strip()
                                 numbered_text = f"{position_counter}. {title} {hyperlinks[0]}"
                                 item = DocumentParser.extract_item_from_text(numbered_text, position_counter)
                             else:
-                                # Нет гиперссылки ИЛИ она усечена - добавляем номер к тексту
                                 numbered_text = f"{position_counter}. {text}"
                                 item = DocumentParser.extract_item_from_text(numbered_text, position_counter)
 
                             if item:
-                                # Добавляем флаг цитирования
-                                item['is_cited'] = position_counter in cited_numbers
+                                # ✅ Если анализ цитирований отключён (cited_numbers=None), все записи citable
+                                item['is_cited'] = cited_numbers is None or position_counter in cited_numbers
                                 items.append(item)
                                 position_counter += 1
 

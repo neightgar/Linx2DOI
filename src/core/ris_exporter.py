@@ -1,7 +1,6 @@
 """
 Генератор RIS файлов для экспорта в Mendeley
 """
-
 import re
 from typing import List, Dict
 
@@ -24,48 +23,50 @@ class RISExporter:
         ris_content = []
 
         for item in items:
-            # Пропускаем элементы без DOI
-            if not item.get('dois') or len(item['dois']) == 0:
+            # ✅ ИЗМЕНЕНО: Пропускаем только если нет ни DOI ни ISBN
+            has_doi = item.get('dois') and len(item['dois']) > 0
+            has_isbn = item.get('isbn')
+
+            # Пропускаем только если совсем нет данных
+            if not has_doi and not has_isbn:
                 continue
 
             # Пропускаем дубли
             if 'ДУБЛЬ' in item.get('status', ''):
                 continue
 
-            # Начало записи - тип публикации
-            ris_content.append("TY  - JOUR")  # Journal Article
+            # ✅ Определяем тип записи
+            if has_isbn and not has_doi:
+                record_type = "BOOK"  # Книга
+            else:
+                record_type = "JOUR"  # Статья
 
-            # Авторы (если есть в метаданных)
+            ris_content.append(f"TY  - {record_type}")
+
             authors = RISExporter._extract_authors(item)
             for author in authors:
                 ris_content.append(f"AU  - {author}")
 
-            # Заголовок статьи
             article_title = item.get('article_title', item.get('title', 'Unknown'))
             if article_title and article_title != 'Не найден':
                 ris_content.append(f"TI  - {article_title}")
 
-            # Название журнала (из метаданных или оригинального названия)
             journal = RISExporter._extract_journal(item)
             if journal:
                 ris_content.append(f"JO  - {journal}")
 
-            # Год публикации
             year = RISExporter._extract_year(item)
             if year:
                 ris_content.append(f"PY  - {year}")
 
-            # Том
             volume = RISExporter._extract_volume(item)
             if volume:
                 ris_content.append(f"VL  - {volume}")
 
-            # Выпуск
             issue = RISExporter._extract_issue(item)
             if issue:
                 ris_content.append(f"IS  - {issue}")
 
-            # Страницы
             pages = RISExporter._extract_pages(item)
             if pages:
                 if '-' in pages:
@@ -75,25 +76,25 @@ class RISExporter:
                 else:
                     ris_content.append(f"SP  - {pages}")
 
-            # DOI
-            doi = item['dois'][0]  # Первый DOI
-            ris_content.append(f"DO  - {doi}")
+            # ✅ DOI (если есть)
+            if has_doi:
+                doi = item['dois'][0]
+                ris_content.append(f"DO  - {doi}")
+                ris_content.append(f"UR  - https://doi.org/{doi}")
 
-            # URL на DOI
-            ris_content.append(f"UR  - https://doi.org/{doi}")
+            # ✅ ISBN (если есть)
+            if has_isbn:
+                ris_content.append(f"SN  - {has_isbn}")
 
-            # Исходный URL статьи (если отличается от DOI)
             if item.get('url') and 'doi.org' not in item['url']:
                 ris_content.append(f"UR  - {item['url']}")
 
-            # Аннотация (если есть)
             abstract = RISExporter._extract_abstract(item)
             if abstract:
                 ris_content.append(f"AB  - {abstract}")
 
-            # Конец записи
             ris_content.append("ER  - ")
-            ris_content.append("")  # Пустая строка между записями
+            ris_content.append("")
 
         return "\n".join(ris_content)
 
@@ -104,13 +105,10 @@ class RISExporter:
         apa = item.get('apa_citation', '')
 
         if apa:
-            # Парсим авторов из APA цитаты
-            # Формат: Author, A. B., & Author2, C. D. (Year). Title...
             match = re.match(r'^([^(]+)\s*\(\d{4}\)', apa)
             if match:
                 author_string = match.group(1).strip()
-                # Разделяем по ", &" и по ","
-                author_parts = re.split(r',\s*&\s*|,\s*(?=[A-Z]\.)', author_string)
+                author_parts = re.split(r',\s* &\s*|,\s*(?=[A-Z]\.)', author_string)
                 for author in author_parts:
                     author = author.strip()
                     if author and len(author) > 2:
@@ -124,9 +122,11 @@ class RISExporter:
         apa = item.get('apa_citation', '')
 
         if apa:
-            # Парсим журнал из APA: ...Title. Journal Name, volume(issue), pages.
-            # Ищем паттерн после точки и перед запятой с номером
             match = re.search(r'\.\s+([^.]+?),\s*\d+', apa)
+            if match:
+                return match.group(1).strip()
+
+            match = re.search(r'<i>[^<]+</i>\.\s*(.+?)(?:\.|$)', apa)
             if match:
                 return match.group(1).strip()
 
@@ -138,7 +138,6 @@ class RISExporter:
         apa = item.get('apa_citation', '')
 
         if apa:
-            # Год в скобках после авторов: (2024)
             match = re.search(r'\((\d{4})\)', apa)
             if match:
                 return match.group(1)
@@ -151,7 +150,6 @@ class RISExporter:
         apa = item.get('apa_citation', '')
 
         if apa:
-            # Том: Journal, 15(3), pages - ищем число перед скобкой
             match = re.search(r',\s*(\d+)\(', apa)
             if match:
                 return match.group(1)
@@ -164,12 +162,10 @@ class RISExporter:
         apa = item.get('apa_citation', '')
 
         if apa:
-            # Выпуск в скобках: 15(3)
             match = re.search(r'\((\d+)\)', apa)
             if match:
-                # Проверяем, что это не год
                 potential_issue = match.group(1)
-                if len(potential_issue) <= 3:  # Год обычно 4 цифры
+                if len(potential_issue) <= 3:
                     return potential_issue
 
         return ""
@@ -180,7 +176,6 @@ class RISExporter:
         apa = item.get('apa_citation', '')
 
         if apa:
-            # Страницы в конце: , 123-145. или , e12345.
             match = re.search(r',\s*([\d\-e]+)\.\s*(?:https?://|$)', apa)
             if match:
                 return match.group(1)
@@ -190,7 +185,6 @@ class RISExporter:
     @staticmethod
     def _extract_abstract(item: Dict) -> str:
         """Извлекает аннотацию (если есть в метаданных)"""
-        # Пока аннотация не сохраняется, можно добавить в будущем
         return ""
 
     @staticmethod

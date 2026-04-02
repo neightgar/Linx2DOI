@@ -9,3 +9,9 @@ requests>=2.31.0
 
 # GUI фреймворк
 PyQt6>=6.6.0
+
+# PubMed поиск (RefChecker функционал)
+biopython>=1.77
+
+# Нечёткое сравнение заголовков
+rapidfuzz>=3.0.0

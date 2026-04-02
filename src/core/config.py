@@ -5,6 +5,7 @@
 # API endpoints
 ENTREZ_EFETCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 CROSSREF_WORKS = "https://api.crossref.org/works"
+GOOGLE_BOOKS_API = "https://www.googleapis.com/books/v1/volumes"
 
 # Настройки приложения
 APP_NAME = "DOIExtractor"
@@ -26,5 +27,6 @@ STATUS_COLORS = {
     'NO_DATA': '#dc3545',      # Красный
     'DUPLICATE': '#f59e0b',    # Оранжевый
     'MANUAL': '#10b981',       # Зелёный
-    'OK': '#63b3ed'            # Синий
+    'OK': '#63b3ed',           # Синий
+    'ISBN': '#9b59b6'          # Фиолетовый для ISBN
 }
